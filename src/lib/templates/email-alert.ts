@@ -32,7 +32,7 @@ export function buildOwnerAlertHtml(
     <div class="row"><div class="label">Location</div><div class="value">${req.location}</div></div>
     ${req.incoterm && req.incoterm !== 'Any' ? `<div class="row"><div class="label">Incoterm</div><div class="value"><span class="tag">${req.incoterm}</span></div></div>` : ''}
     <div class="row"><div class="label">Suppliers Found</div><div class="value">${supplierCount}</div></div>
-    ${req.imageBase64 ? '<div class="row"><div class="label">Product Image</div><div class="value">✅ Uploaded</div></div>' : ''}
+    ${req.attachments?.length ? `<div class="row"><div class="label">Attachments</div><div class="value">✅ ${req.attachments.length} file(s) uploaded</div></div>` : ''}
   </div>
 </body>
 </html>`

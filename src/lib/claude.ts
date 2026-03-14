@@ -1,7 +1,42 @@
 import Anthropic from '@anthropic-ai/sdk'
-import type { SearchRequest, SupplierResult } from '@/types'
+import type { SearchRequest, SupplierResult, Attachment } from '@/types'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+
+type ImageMediaType = 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
+const VALID_IMAGE_TYPES: ImageMediaType[] = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+
+function buildAttachmentBlocks(attachments: Attachment[]): Anthropic.MessageParam['content'] {
+  const blocks: Anthropic.ContentBlockParam[] = []
+
+  for (const att of attachments) {
+    if (att.mimeType === 'application/pdf') {
+      // PDF via document block (beta)
+      blocks.push({
+        type: 'document',
+        source: {
+          type: 'base64',
+          media_type: 'application/pdf',
+          data: att.base64,
+        },
+        title: att.name,
+        context: 'Specification or reference document provided by the buyer.',
+      } as unknown as Anthropic.ContentBlockParam)
+    } else if (VALID_IMAGE_TYPES.includes(att.mimeType as ImageMediaType)) {
+      blocks.push({
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: att.mimeType as ImageMediaType,
+          data: att.base64,
+        },
+      })
+    }
+    // unsupported types are silently skipped
+  }
+
+  return blocks
+}
 
 export async function searchSuppliers(req: SearchRequest): Promise<SupplierResult[]> {
   const incotermNote = req.incoterm && req.incoterm !== 'Any'
@@ -40,33 +75,25 @@ INCOTERM: ${incotermNote}
 
 Search for real suppliers accessible from ${req.location}. Include local suppliers in ${req.location} as well as international suppliers that ship there.`
 
-  // Build message content - add image if provided
-  type ImageMediaType = 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
-  type ContentBlock =
-    | { type: 'text'; text: string }
-    | { type: 'image'; source: { type: 'base64'; media_type: ImageMediaType; data: string } }
+  // Build message content with all attachments
+  const attachmentBlocks = req.attachments?.length
+    ? buildAttachmentBlocks(req.attachments)
+    : []
 
-  const messageContent: ContentBlock[] = []
+  const hasAttachments = Array.isArray(attachmentBlocks) && attachmentBlocks.length > 0
+  const textSuffix = hasAttachments
+    ? '\n\nThe attached files (images and/or documents) show the product or specifications. Use them to refine your search.'
+    : ''
 
-  if (req.imageBase64 && req.imageMimeType) {
-    const validTypes: ImageMediaType[] = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
-    const mimeType = validTypes.includes(req.imageMimeType as ImageMediaType)
-      ? (req.imageMimeType as ImageMediaType)
-      : 'image/jpeg'
-    messageContent.push({
-      type: 'image',
-      source: {
-        type: 'base64',
-        media_type: mimeType,
-        data: req.imageBase64,
-      },
-    })
-    messageContent.push({
-      type: 'text',
-      text: userMessage + '\n\nThe image above shows the product being sourced. Use it to refine your search.',
-    })
-  } else {
-    messageContent.push({ type: 'text', text: userMessage })
+  const messageContent: Anthropic.ContentBlockParam[] = [
+    ...(Array.isArray(attachmentBlocks) ? attachmentBlocks as Anthropic.ContentBlockParam[] : []),
+    { type: 'text', text: userMessage + textSuffix },
+  ]
+
+  const headers: Record<string, string> = { 'anthropic-beta': 'web-search-2025-03-05' }
+  // Add PDFs beta header if any PDF is included
+  if (req.attachments?.some(a => a.mimeType === 'application/pdf')) {
+    headers['anthropic-beta'] = 'web-search-2025-03-05,pdfs-2024-09-25'
   }
 
   const response = await client.messages.create({
@@ -75,11 +102,8 @@ Search for real suppliers accessible from ${req.location}. Include local supplie
     system: systemPrompt,
     messages: [{ role: 'user', content: messageContent }],
     tools: [{ type: 'web_search_20250305' as 'web_search_20250305', name: 'web_search', max_uses: 8 }],
-  }, {
-    headers: { 'anthropic-beta': 'web-search-2025-03-05' },
-  })
+  }, { headers })
 
-  // Extract text content from the response
   const textContent = response.content
     .filter((block) => block.type === 'text')
     .map((block) => (block as { type: 'text'; text: string }).text)
@@ -89,13 +113,11 @@ Search for real suppliers accessible from ${req.location}. Include local supplie
 }
 
 function parseSuppliers(raw: string): SupplierResult[] {
-  // Strip markdown code blocks if present
   const cleaned = raw
     .replace(/```json\s*/gi, '')
     .replace(/```\s*/gi, '')
     .trim()
 
-  // Find JSON array in the response
   const arrayStart = cleaned.indexOf('[')
   const arrayEnd = cleaned.lastIndexOf(']')
 
@@ -104,10 +126,8 @@ function parseSuppliers(raw: string): SupplierResult[] {
     return []
   }
 
-  const jsonStr = cleaned.substring(arrayStart, arrayEnd + 1)
-
   try {
-    const parsed = JSON.parse(jsonStr)
+    const parsed = JSON.parse(cleaned.substring(arrayStart, arrayEnd + 1))
     if (!Array.isArray(parsed)) return []
     return parsed as SupplierResult[]
   } catch (err) {

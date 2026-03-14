@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useCallback } from 'react'
-import type { SupplierResult, SearchRequest, SearchResponse } from '@/types'
+import type { SupplierResult, SearchRequest, SearchResponse, Attachment } from '@/types'
 
 const INCOTERMS = ['Any', 'EXW', 'FOB', 'CIF', 'DDP', 'DAP', 'FCA', 'CPT', 'CFR']
 
@@ -19,9 +19,7 @@ export default function ProcurementPage() {
   const [brandOrSku, setBrandOrSku] = useState('')
   const [location, setLocation] = useState('')
   const [incoterm, setIncoterm] = useState('Any')
-  const [imageBase64, setImageBase64] = useState<string | null>(null)
-  const [imageMimeType, setImageMimeType] = useState<string | null>(null)
-  const [imagePreview, setImagePreview] = useState<string | null>(null)
+  const [attachments, setAttachments] = useState<(Attachment & { preview?: string })[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // UI state
@@ -37,27 +35,43 @@ export default function ProcurementPage() {
   const [emailLoading, setEmailLoading] = useState(false)
   const [emailStatus, setEmailStatus] = useState<{ ok: boolean; message: string } | null>(null)
 
-  const handleImageUpload = useCallback((file: File) => {
-    if (file.size > 5 * 1024 * 1024) {
-      alert('Image must be under 5MB')
-      return
-    }
-    const reader = new FileReader()
-    reader.onload = (e) => {
-      const result = e.target?.result as string
-      setImagePreview(result)
-      const base64 = result.split(',')[1]
-      setImageBase64(base64)
-      setImageMimeType(file.type)
-    }
-    reader.readAsDataURL(file)
+  const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'application/pdf']
+  const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
+  const MAX_FILES = 6
+
+  const addFiles = useCallback((files: File[]) => {
+    const valid = files.filter(f => ACCEPTED_TYPES.includes(f.type) && f.size <= MAX_FILE_SIZE)
+    if (valid.length < files.length) alert('Some files were skipped — only images and PDFs under 10MB are accepted.')
+
+    valid.forEach(file => {
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        const dataUrl = e.target?.result as string
+        const base64 = dataUrl.split(',')[1]
+        setAttachments(prev => {
+          if (prev.length >= MAX_FILES) return prev
+          // deduplicate by name
+          if (prev.some(a => a.name === file.name)) return prev
+          return [...prev, {
+            base64,
+            mimeType: file.type,
+            name: file.name,
+            preview: file.type.startsWith('image/') ? dataUrl : undefined,
+          }]
+        })
+      }
+      reader.readAsDataURL(file)
+    })
+  }, [])
+
+  const removeAttachment = useCallback((name: string) => {
+    setAttachments(prev => prev.filter(a => a.name !== name))
   }, [])
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
-    const file = e.dataTransfer.files[0]
-    if (file && file.type.startsWith('image/')) handleImageUpload(file)
-  }, [handleImageUpload])
+    addFiles(Array.from(e.dataTransfer.files))
+  }, [addFiles])
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -76,8 +90,9 @@ export default function ProcurementPage() {
       brandOrSku: brandOrSku || undefined,
       location,
       incoterm: incoterm !== 'Any' ? incoterm : undefined,
-      imageBase64: imageBase64 || undefined,
-      imageMimeType: imageMimeType || undefined,
+      attachments: attachments.length > 0
+        ? attachments.map(({ base64, mimeType, name }) => ({ base64, mimeType, name }))
+        : undefined,
     }
     setSearchReq(req)
 
@@ -146,6 +161,7 @@ export default function ProcurementPage() {
     setError(null)
     setEmailStatus(null)
     setSearchReq(null)
+    setAttachments([])
   }
 
   return (
@@ -225,30 +241,59 @@ export default function ProcurementPage() {
                 />
               </div>
 
-              {/* Image Upload */}
+              {/* Multi-file Upload */}
               <div style={{ marginBottom: 8 }}>
                 <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#0F2D3A', marginBottom: 6 }}>
-                  Product image <span style={{ color: '#636e72', fontWeight: 400 }}>(optional — helps refine results)</span>
+                  Images &amp; specification files <span style={{ color: '#636e72', fontWeight: 400 }}>(optional — up to 6 files)</span>
                 </label>
-                {imagePreview ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                    <img src={imagePreview} alt="Product" style={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 8, border: '1.5px solid #28cfe2' }} />
-                    <button type="button" onClick={() => { setImagePreview(null); setImageBase64(null); setImageMimeType(null) }} style={{ color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13 }}>
-                      Remove image
-                    </button>
-                  </div>
-                ) : (
+
+                {/* Drop zone */}
+                {attachments.length < MAX_FILES && (
                   <div
                     onDrop={handleDrop}
                     onDragOver={(e) => e.preventDefault()}
                     onClick={() => fileInputRef.current?.click()}
-                    style={{ border: '2px dashed #d4d9db', borderRadius: 8, padding: '24px', textAlign: 'center', cursor: 'pointer', transition: 'border-color 0.2s' }}
+                    style={{ border: '2px dashed #d4d9db', borderRadius: 8, padding: '20px', textAlign: 'center', cursor: 'pointer', transition: 'border-color 0.2s', marginBottom: attachments.length > 0 ? 12 : 0 }}
                     onMouseEnter={(e) => (e.currentTarget.style.borderColor = '#28cfe2')}
                     onMouseLeave={(e) => (e.currentTarget.style.borderColor = '#d4d9db')}
                   >
-                    <div style={{ fontSize: 24, marginBottom: 8 }}>📷</div>
-                    <div style={{ color: '#636e72', fontSize: 13 }}>Click or drag & drop an image (JPEG, PNG, WEBP — max 5MB)</div>
-                    <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImageUpload(f) }} />
+                    <div style={{ fontSize: 22, marginBottom: 6 }}>📎</div>
+                    <div style={{ color: '#636e72', fontSize: 13 }}>
+                      Click or drag &amp; drop — JPEG, PNG, WEBP, PDF (max 10MB each)
+                    </div>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/gif,application/pdf"
+                      multiple
+                      style={{ display: 'none' }}
+                      onChange={(e) => { if (e.target.files) addFiles(Array.from(e.target.files)); e.target.value = '' }}
+                    />
+                  </div>
+                )}
+
+                {/* Attachment thumbnails */}
+                {attachments.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                    {attachments.map((att) => (
+                      <div key={att.name} style={{ position: 'relative', width: 80, height: 80, borderRadius: 8, border: '1.5px solid #28cfe2', overflow: 'hidden', background: '#f0fafe' }}>
+                        {att.preview ? (
+                          <img src={att.preview} alt={att.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        ) : (
+                          <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                            <span style={{ fontSize: 24 }}>📄</span>
+                            <span style={{ fontSize: 9, color: '#636e72', textAlign: 'center', padding: '0 4px', wordBreak: 'break-word', lineHeight: 1.2 }}>
+                              {att.name.length > 14 ? att.name.substring(0, 12) + '…' : att.name}
+                            </span>
+                          </div>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => removeAttachment(att.name)}
+                          style={{ position: 'absolute', top: 2, right: 2, width: 18, height: 18, borderRadius: '50%', background: '#ef4444', border: 'none', color: '#fff', fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1, padding: 0 }}
+                        >×</button>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>

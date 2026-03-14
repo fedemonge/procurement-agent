@@ -13,13 +13,18 @@ export interface SupplierResult {
   notes?: string
 }
 
+export interface Attachment {
+  base64: string
+  mimeType: string
+  name: string
+}
+
 export interface SearchRequest {
   description: string
   brandOrSku?: string
   location: string
   incoterm?: string
-  imageBase64?: string
-  imageMimeType?: string
+  attachments?: Attachment[]
 }
 
 export interface SearchResponse {

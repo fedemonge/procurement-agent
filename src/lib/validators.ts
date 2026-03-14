@@ -5,8 +5,11 @@ export const SearchRequestSchema = z.object({
   brandOrSku: z.string().optional(),
   location: z.string().min(2, 'Please enter a city or country'),
   incoterm: z.string().optional(),
-  imageBase64: z.string().optional(),
-  imageMimeType: z.string().optional(),
+  attachments: z.array(z.object({
+    base64: z.string(),
+    mimeType: z.string(),
+    name: z.string(),
+  })).optional(),
 })
 
 export const EmailRequestSchema = z.object({
