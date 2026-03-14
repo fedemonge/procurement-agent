@@ -87,9 +87,31 @@ export default function ProcurementPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(req),
       })
-      const data: SearchResponse & { error?: string } = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Search failed')
-      setSuppliers(data.suppliers)
+
+      if (!res.ok || !res.body) throw new Error('Search failed')
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n\n')
+        buffer = lines.pop() ?? ''
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          const event = JSON.parse(line.slice(6)) as { type: string; suppliers?: SupplierResult[]; message?: string }
+          if (event.type === 'result' && event.suppliers) {
+            setSuppliers(event.suppliers)
+          } else if (event.type === 'error') {
+            throw new Error(event.message || 'Search failed')
+          }
+          // 'ping' events are ignored — they just keep the connection alive
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.')
     } finally {
