@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "npm install --legacy-peer-deps",
+  "functions": {
+    "src/app/api/search/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/email-results/route.ts": {
+      "maxDuration": 60
+    }
+  }
+}

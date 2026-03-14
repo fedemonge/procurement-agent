@@ -1,0 +1,18 @@
+@import "tailwindcss";
+
+:root {
+  --teal: #28cfe2;
+  --teal-dark: #1fb8c9;
+  --navy: #0F2D3A;
+  --charcoal: #1a1d1e;
+  --text: #2d3436;
+  --text-light: #636e72;
+  --border: #d4d9db;
+  --light: #f0fafe;
+}
+
+body {
+  background: var(--charcoal);
+  color: var(--text);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}

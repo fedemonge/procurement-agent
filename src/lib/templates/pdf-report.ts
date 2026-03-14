@@ -1,0 +1,111 @@
+import type { SupplierResult, SearchRequest } from '@/types'
+
+export function buildPdfHtml(suppliers: SupplierResult[], req: SearchRequest): string {
+  const date = new Date().toLocaleDateString('es-CO', {
+    timeZone: 'America/Bogota',
+    year: 'numeric', month: 'long', day: 'numeric',
+  })
+
+  const supplierRows = suppliers.map((s, i) => `
+    <tr style="background:${i % 2 === 0 ? '#f0fafe' : '#ffffff'}">
+      <td style="padding:10px 8px;border-bottom:1px solid #d4e8f0;font-weight:600;color:#0F2D3A">${s.name}</td>
+      <td style="padding:10px 8px;border-bottom:1px solid #d4e8f0">${s.country}</td>
+      <td style="padding:10px 8px;border-bottom:1px solid #d4e8f0;font-size:11px">${s.address}</td>
+      <td style="padding:10px 8px;border-bottom:1px solid #d4e8f0">
+        <a href="${s.website}" style="color:#28cfe2">${s.website}</a>
+        ${s.catalogUrl ? `<br><a href="${s.catalogUrl}" style="color:#28cfe2;font-size:10px">Catalog</a>` : ''}
+      </td>
+      <td style="padding:10px 8px;border-bottom:1px solid #d4e8f0;font-size:11px">
+        ${s.phone ? `📞 ${s.phone}<br>` : ''}
+        ${s.email ? `✉ ${s.email}` : ''}
+      </td>
+      <td style="padding:10px 8px;border-bottom:1px solid #d4e8f0;font-size:11px">${s.productDetails}</td>
+      <td style="padding:10px 8px;border-bottom:1px solid #d4e8f0;font-size:11px;text-align:center">
+        ${s.rating ? `<strong>${s.rating}</strong>${s.ratingSource ? `<br><span style="font-size:9px;color:#636e72">${s.ratingSource}</span>` : ''}` : '—'}
+      </td>
+    </tr>`).join('')
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, Helvetica, sans-serif; font-size: 12px; color: #2d3436; background: #fff; }
+    .header { background: #0F2D3A; color: #fff; padding: 24px 32px; display: flex; justify-content: space-between; align-items: center; }
+    .header h1 { font-size: 20px; font-weight: 700; }
+    .header .sub { font-size: 11px; color: #28cfe2; margin-top: 4px; }
+    .header .logo-text { font-size: 13px; font-weight: 700; color: #28cfe2; text-align: right; }
+    .header .logo-tagline { font-size: 10px; color: #aaa; text-align: right; }
+    .meta { background: #f7fbfc; border-bottom: 2px solid #28cfe2; padding: 16px 32px; display: flex; gap: 32px; flex-wrap: wrap; }
+    .meta-item { display: flex; flex-direction: column; }
+    .meta-item .label { font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: #636e72; }
+    .meta-item .value { font-size: 12px; font-weight: 600; color: #0F2D3A; margin-top: 2px; }
+    .content { padding: 24px 32px; }
+    table { width: 100%; border-collapse: collapse; }
+    th { background: #0F2D3A; color: #28cfe2; padding: 10px 8px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; text-align: left; }
+    .count { font-size: 11px; color: #636e72; margin-bottom: 12px; }
+    .footer { background: #0F2D3A; color: #aaa; font-size: 10px; padding: 12px 32px; text-align: center; margin-top: 24px; }
+    .footer a { color: #28cfe2; }
+    @media print { .header, .footer { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <div class="h1">PROCUREMENT SEARCH REPORT</div>
+      <div class="sub">AI-powered supplier discovery</div>
+    </div>
+    <div>
+      <div class="logo-text">Federico Monge Consulting</div>
+      <div class="logo-tagline">AI · Strategy · Finance</div>
+    </div>
+  </div>
+
+  <div class="meta">
+    <div class="meta-item">
+      <span class="label">Product / Service</span>
+      <span class="value">${req.description.substring(0, 80)}${req.description.length > 80 ? '...' : ''}</span>
+    </div>
+    ${req.brandOrSku ? `<div class="meta-item"><span class="label">Brand / SKU</span><span class="value">${req.brandOrSku}</span></div>` : ''}
+    <div class="meta-item">
+      <span class="label">Location</span>
+      <span class="value">${req.location}</span>
+    </div>
+    ${req.incoterm && req.incoterm !== 'Any' ? `<div class="meta-item"><span class="label">Incoterm</span><span class="value">${req.incoterm}</span></div>` : ''}
+    <div class="meta-item">
+      <span class="label">Date</span>
+      <span class="value">${date}</span>
+    </div>
+    <div class="meta-item">
+      <span class="label">Suppliers Found</span>
+      <span class="value">${suppliers.length}</span>
+    </div>
+  </div>
+
+  <div class="content">
+    <div class="count">${suppliers.length} supplier(s) identified. Verify contact details before reaching out.</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Supplier</th>
+          <th>Country</th>
+          <th>Address</th>
+          <th>Website</th>
+          <th>Contact</th>
+          <th>Product Details</th>
+          <th>Rating</th>
+        </tr>
+      </thead>
+      <tbody>${supplierRows}</tbody>
+    </table>
+  </div>
+
+  <div class="footer">
+    Generated by <a href="https://procurement.fedemongeconsulting.com">Procurement Agent</a> &nbsp;|&nbsp;
+    <a href="https://www.fedemongeconsulting.com">www.fedemongeconsulting.com</a> &nbsp;|&nbsp;
+    Results sourced from public web data. Always verify before contacting suppliers.
+  </div>
+</body>
+</html>`
+}
