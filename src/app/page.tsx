@@ -416,7 +416,7 @@ export default function ProcurementPage() {
                       type="text"
                       value={userName}
                       onChange={(e) => setUserName(e.target.value)}
-                      placeholder="Maria García"
+                      placeholder="John Doe"
                       required
                       style={{ width: '100%', background: '#1a1d1e', border: '1.5px solid #28cfe240', borderRadius: 8, padding: '10px 14px', fontSize: 14, color: '#fff', outline: 'none', fontFamily: 'inherit' }}
                       onFocus={(e) => e.target.style.borderColor = '#28cfe2'}
