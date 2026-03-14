@@ -1,11 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { EmailRequestSchema } from '@/lib/validators'
-import { sendEmail } from '@/lib/mailer'
 import { generateExcel } from '@/lib/excel'
 import { buildPdfHtml } from '@/lib/templates/pdf-report'
 import { buildOwnerAlertHtml, buildUserResultsHtml } from '@/lib/templates/email-alert'
 
 export const dynamic = 'force-dynamic'
+
+const N8N_WEBHOOK = 'https://fedemonge.app.n8n.cloud/webhook/procurement-email'
+
+async function sendViaN8n(payload: {
+  to: string
+  subject: string
+  userHtml: string
+  reportHtml?: string
+  reportFilename?: string
+  excelBase64?: string
+  excelFilename?: string
+}) {
+  const res = await fetch(N8N_WEBHOOK, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`n8n responded ${res.status}: ${text.substring(0, 200)}`)
+  }
+  return true
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -22,41 +44,35 @@ export async function POST(request: NextRequest) {
     const { userName, userEmail, searchRequest, suppliers } = parsed.data
     console.log(`[EMAIL] Processing for ${userEmail} — ${suppliers.length} suppliers`)
 
+    const ts = Date.now()
+
     // Generate Excel
     const excelBuffer = await generateExcel(suppliers, searchRequest)
-    console.log(`[EMAIL] Excel generated (${excelBuffer.length} bytes)`)
+    const excelBase64 = excelBuffer.toString('base64')
+    console.log(`[EMAIL] Excel ready (${excelBuffer.length} bytes)`)
 
-    // Build report HTML
-    const pdfHtml = buildPdfHtml(suppliers, searchRequest)
+    // Build HTML report
+    const reportHtml = buildPdfHtml(suppliers, searchRequest)
 
-    // Send to user
-    const ts = Date.now()
-    await sendEmail({
+    // Send report to user via n8n
+    await sendViaN8n({
       to: userEmail,
       subject: `Your Procurement Report — ${suppliers.length} supplier(s) found`,
-      html: buildUserResultsHtml(userName, suppliers.length),
-      attachments: [
-        {
-          filename: `procurement-report-${ts}.html`,
-          content: Buffer.from(pdfHtml, 'utf-8'),
-          contentType: 'text/html',
-        },
-        {
-          filename: `procurement-suppliers-${ts}.xlsx`,
-          content: excelBuffer,
-          contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        },
-      ],
+      userHtml: buildUserResultsHtml(userName, suppliers.length),
+      reportHtml,
+      reportFilename: `procurement-report-${ts}.html`,
+      excelBase64,
+      excelFilename: `procurement-suppliers-${ts}.xlsx`,
     })
+    console.log(`[EMAIL] Report sent to ${userEmail}`)
 
-    // Alert owner (fire and forget — don't block user response)
-    sendEmail({
+    // Alert owner (non-blocking)
+    sendViaN8n({
       to: process.env.OWNER_EMAIL || 'fede@fedemongeconsulting.com',
       subject: `New Procurement Search — ${userName} (${suppliers.length} suppliers)`,
-      html: buildOwnerAlertHtml(userName, userEmail, searchRequest, suppliers.length),
+      userHtml: buildOwnerAlertHtml(userName, userEmail, searchRequest, suppliers.length),
     }).catch((err) => console.error('[EMAIL] Owner alert failed:', err))
 
-    console.log(`[EMAIL] Done for ${userEmail}`)
     return NextResponse.json({
       success: true,
       message: `Report emailed to ${userEmail} — check your inbox (and spam folder).`,
