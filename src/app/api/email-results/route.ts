@@ -1,60 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { waitUntil } from '@vercel/functions'
 import { EmailRequestSchema } from '@/lib/validators'
 import { sendEmail } from '@/lib/mailer'
 import { generateExcel } from '@/lib/excel'
 import { buildPdfHtml } from '@/lib/templates/pdf-report'
 import { buildOwnerAlertHtml, buildUserResultsHtml } from '@/lib/templates/email-alert'
 
-export const maxDuration = 60
-
-async function processAndSend(
-  userName: string,
-  userEmail: string,
-  searchRequest: Parameters<typeof buildPdfHtml>[1],
-  suppliers: Parameters<typeof buildPdfHtml>[0]
-) {
-  try {
-    console.log(`[EMAIL] Starting PDF+Excel generation for ${userEmail}`)
-
-    // Generate Excel
-    const excelBuffer = await generateExcel(suppliers, searchRequest)
-
-    // Generate PDF (HTML string — we send as HTML attachment since no puppeteer on free tier)
-    const pdfHtml = buildPdfHtml(suppliers, searchRequest)
-
-    // Send to user
-    await sendEmail({
-      to: userEmail,
-      subject: `Your Procurement Report — ${suppliers.length} supplier(s) found`,
-      html: buildUserResultsHtml(userName, suppliers.length),
-      attachments: [
-        {
-          filename: `procurement-report-${Date.now()}.html`,
-          content: Buffer.from(pdfHtml, 'utf-8'),
-          contentType: 'text/html',
-        },
-        {
-          filename: `procurement-suppliers-${Date.now()}.xlsx`,
-          content: excelBuffer,
-          contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        },
-      ],
-    })
-
-    // Alert owner
-    const ownerAlertHtml = buildOwnerAlertHtml(userName, userEmail, searchRequest, suppliers.length)
-    await sendEmail({
-      to: process.env.OWNER_EMAIL || 'fede@fedemongeconsulting.com',
-      subject: `🔔 New Procurement Search — ${userName} (${suppliers.length} suppliers)`,
-      html: ownerAlertHtml,
-    })
-
-    console.log(`[EMAIL] Done for ${userEmail}`)
-  } catch (err) {
-    console.error('[EMAIL] Background processing error:', err)
-  }
-}
+export const dynamic = 'force-dynamic'
 
 export async function POST(request: NextRequest) {
   try {
@@ -69,17 +20,50 @@ export async function POST(request: NextRequest) {
     }
 
     const { userName, userEmail, searchRequest, suppliers } = parsed.data
+    console.log(`[EMAIL] Processing for ${userEmail} — ${suppliers.length} suppliers`)
 
-    // Return immediately — process in background
-    waitUntil(processAndSend(userName, userEmail, searchRequest, suppliers))
+    // Generate Excel
+    const excelBuffer = await generateExcel(suppliers, searchRequest)
+    console.log(`[EMAIL] Excel generated (${excelBuffer.length} bytes)`)
 
+    // Build report HTML
+    const pdfHtml = buildPdfHtml(suppliers, searchRequest)
+
+    // Send to user
+    const ts = Date.now()
+    await sendEmail({
+      to: userEmail,
+      subject: `Your Procurement Report — ${suppliers.length} supplier(s) found`,
+      html: buildUserResultsHtml(userName, suppliers.length),
+      attachments: [
+        {
+          filename: `procurement-report-${ts}.html`,
+          content: Buffer.from(pdfHtml, 'utf-8'),
+          contentType: 'text/html',
+        },
+        {
+          filename: `procurement-suppliers-${ts}.xlsx`,
+          content: excelBuffer,
+          contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        },
+      ],
+    })
+
+    // Alert owner (fire and forget — don't block user response)
+    sendEmail({
+      to: process.env.OWNER_EMAIL || 'fede@fedemongeconsulting.com',
+      subject: `New Procurement Search — ${userName} (${suppliers.length} suppliers)`,
+      html: buildOwnerAlertHtml(userName, userEmail, searchRequest, suppliers.length),
+    }).catch((err) => console.error('[EMAIL] Owner alert failed:', err))
+
+    console.log(`[EMAIL] Done for ${userEmail}`)
     return NextResponse.json({
       success: true,
-      message: `Your report is being prepared and will be emailed to ${userEmail} shortly.`,
+      message: `Report emailed to ${userEmail} — check your inbox (and spam folder).`,
     })
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Unknown error'
-    console.error('[EMAIL-RESULTS] Error:', msg)
-    return NextResponse.json({ error: 'Failed to queue email.' }, { status: 500 })
+    console.error('[EMAIL] Error:', msg)
+    return NextResponse.json({ error: `Failed to send email: ${msg}` }, { status: 500 })
   }
 }

@@ -3,12 +3,16 @@ import nodemailer from 'nodemailer'
 function createTransporter() {
   return nodemailer.createTransport({
     host: process.env.SMTP_HOST || 'smtp.hostinger.com',
-    port: Number(process.env.SMTP_PORT) || 465,
-    secure: true,
+    port: 587,
+    secure: false, // STARTTLS — port 465 (SSL) is blocked by AWS/Vercel
+    requireTLS: true,
     auth: {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
     },
+    connectionTimeout: 8000,
+    greetingTimeout: 5000,
+    socketTimeout: 8000,
   })
 }
 
