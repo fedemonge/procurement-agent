@@ -101,7 +101,7 @@ Search for real suppliers accessible from ${req.location}. Include local supplie
     max_tokens: 8000,
     system: systemPrompt,
     messages: [{ role: 'user', content: messageContent }],
-    tools: [{ type: 'web_search_20250305' as 'web_search_20250305', name: 'web_search', max_uses: 8 }],
+    tools: [{ type: 'web_search_20250305' as 'web_search_20250305', name: 'web_search', max_uses: 5 }],
   }, { headers })
 
   const textContent = response.content

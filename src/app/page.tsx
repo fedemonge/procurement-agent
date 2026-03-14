@@ -108,6 +108,7 @@ export default function ProcurementPage() {
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
+      let gotResult = false
 
       while (true) {
         const { done, value } = await reader.read()
@@ -120,12 +121,18 @@ export default function ProcurementPage() {
           if (!line.startsWith('data: ')) continue
           const event = JSON.parse(line.slice(6)) as { type: string; suppliers?: SupplierResult[]; message?: string }
           if (event.type === 'result' && event.suppliers) {
+            gotResult = true
             setSuppliers(event.suppliers)
           } else if (event.type === 'error') {
+            gotResult = true
             throw new Error(event.message || 'Search failed')
           }
-          // 'ping' events are ignored — they just keep the connection alive
+          // 'ping' events just keep the connection alive
         }
+      }
+
+      if (!gotResult) {
+        throw new Error('The search timed out. Please try again — complex queries can take up to 45 seconds.')
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.')

@@ -1,8 +1,9 @@
 import { NextRequest } from 'next/server'
 import { searchSuppliers } from '@/lib/claude'
 import { SearchRequestSchema } from '@/lib/validators'
-import { randomUUID } from 'crypto'
 
+// Edge Runtime: 30s execution limit on Hobby (vs 10s for Node.js runtime)
+export const runtime = 'edge'
 export const dynamic = 'force-dynamic'
 
 function sseEvent(data: object): Uint8Array {
@@ -25,7 +26,6 @@ export async function POST(request: NextRequest) {
 
   const stream = new ReadableStream({
     async start(controller) {
-      // Send keepalive ticks every 5s so the connection stays alive
       const keepalive = setInterval(() => {
         try { controller.enqueue(sseEvent({ type: 'ping' })) } catch { /* closed */ }
       }, 5000)
@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
           controller.enqueue(sseEvent({ type: 'error', message: 'No suppliers found. Try a different description or location.' }))
         } else {
           console.log(`[SEARCH] Found ${suppliers.length} suppliers`)
-          controller.enqueue(sseEvent({ type: 'result', suppliers, searchId: randomUUID() }))
+          controller.enqueue(sseEvent({ type: 'result', suppliers, searchId: crypto.randomUUID() }))
         }
       } catch (err) {
         clearInterval(keepalive)
