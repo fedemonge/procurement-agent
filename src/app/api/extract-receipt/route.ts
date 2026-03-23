@@ -10,48 +10,7 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Headers': 'Content-Type',
 }
 
-export async function OPTIONS() {
-  return new Response(null, { status: 204, headers: CORS_HEADERS })
-}
-
-export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json()
-    const { image, mimeType } = body
-
-    if (!image) {
-      return new Response(
-        JSON.stringify({ error: 'No image provided' }),
-        { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
-      )
-    }
-
-    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-
-    const validTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'] as const
-    type ImageMediaType = typeof validTypes[number]
-    const mediaType: ImageMediaType = validTypes.includes(mimeType as ImageMediaType)
-      ? (mimeType as ImageMediaType)
-      : 'image/jpeg'
-
-    const response = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 2000,
-      messages: [
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'image',
-              source: {
-                type: 'base64',
-                media_type: mediaType,
-                data: image,
-              },
-            },
-            {
-              type: 'text',
-              text: `Analyze this receipt, invoice, or expense proof image. Extract all relevant information and return it as a JSON object with these fields:
+const EXTRACT_PROMPT = `Analyze this receipt, invoice, or expense proof. Extract all relevant information and return it as a JSON object with these fields:
 
 {
   "vendor": "Name of the business/vendor",
@@ -75,9 +34,73 @@ Rules:
 - For currency, detect from symbols ($ = USD, € = EUR, S/ = PEN, R$ = BRL, ₡ = CRC) or text
 - Confidence should be between 0 and 1 based on image quality and readability
 - Parse all amounts as numbers (not strings)
-- Date should always be YYYY-MM-DD format`,
-            },
-          ],
+- Date should always be YYYY-MM-DD format`
+
+export async function OPTIONS() {
+  return new Response(null, { status: 204, headers: CORS_HEADERS })
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json()
+    const { image, mimeType } = body
+
+    if (!image) {
+      return new Response(
+        JSON.stringify({ error: 'No image provided' }),
+        { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+
+    const isPdf = mimeType === 'application/pdf'
+    const validImageTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'] as const
+    type ImageMediaType = typeof validImageTypes[number]
+
+    // Build content blocks based on file type
+    const contentBlocks: Anthropic.ContentBlockParam[] = []
+
+    if (isPdf) {
+      // Use document block for PDFs
+      contentBlocks.push({
+        type: 'document',
+        source: {
+          type: 'base64',
+          media_type: 'application/pdf',
+          data: image,
+        },
+        title: 'Receipt/Invoice',
+        context: 'This is a receipt, invoice, or expense proof document to extract data from.',
+      } as unknown as Anthropic.ContentBlockParam)
+    } else {
+      // Use image block for images
+      const mediaType: ImageMediaType = validImageTypes.includes(mimeType as ImageMediaType)
+        ? (mimeType as ImageMediaType)
+        : 'image/jpeg'
+
+      contentBlocks.push({
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: mediaType,
+          data: image,
+        },
+      })
+    }
+
+    contentBlocks.push({
+      type: 'text',
+      text: EXTRACT_PROMPT,
+    })
+
+    const response = await client.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 2000,
+      messages: [
+        {
+          role: 'user',
+          content: contentBlocks,
         },
       ],
     })
